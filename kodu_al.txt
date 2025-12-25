@@ -1,0 +1,3086 @@
+/* 
+ * ============================================================
+ * IOT SENSOR TRACKING SYSTEM - FULL SOURCE CODE
+ * ============================================================
+ * Instructions:
+ * 1. Copy all text inside this code block
+ * 2. Paste into a file named "kodu_al.txt" (on your desktop)
+ * 3. Extract the file or use the code
+ * ============================================================
+ */
+
+// ==========================================
+// 1. ROOT CONFIG FILES
+// ==========================================
+
+// --- FILE: next.config.mjs ---
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  reactStrictMode: true,
+}
+
+export default nextConfig
+
+// --- FILE: tailwind.config.ts ---
+import type { Config } from "tailwindcss";
+
+const config = {
+  darkMode: ["class"],
+  content: [
+    "./src/pages/**/*.{js,ts,jsx,tsx,mdx}",
+    "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
+    "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
+  ],
+  theme: {
+    extend: {
+      colors: {
+        border: "hsl(var(--border))",
+        input: "hsl(var(--input))",
+        ring: "hsl(var(--ring))",
+        background: "hsl(var(--background))",
+        foreground: "hsl(var(--foreground))",
+      },
+    },
+  },
+  plugins: [require("tailwindcss-animate")],
+} satisfies Config
+
+export default config
+
+// --- FILE: postcss.config.mjs ---
+/** @type {import('postcss-load-config').Config} */
+const config = {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {},
+  },
+};
+
+export default config
+
+// --- FILE: package.json ---
+{
+  "name": "iot-sensor-tracking",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "db:push": "prisma db push",
+    "db:generate": "prisma generate"
+  },
+  "dependencies": {
+    "next": "^14.2.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "@prisma/client": "^5.20.0",
+    "prisma": "^5.20.0",
+    "bcryptjs": "^2.4.3",
+    "jose": "^5.9.0",
+    "date-fns": "^3.6.0",
+    "lucide-react": "^0.441.0",
+    "ws": "^8.18.0",
+    "tailwindcss": "^3.4.0",
+    "clsx": "^2.1.0",
+    "tailwind-merge": "^2.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "@types/ws": "^8.5.0",
+    "typescript": "^5.6.0",
+    "eslint": "^8.56.0",
+    "eslint-config-next": "^14.2.0",
+    "tailwindcss": "^3.4.0",
+    "postcss": "^8.4.0",
+    "autoprefixer": "^10.4.0"
+  }
+}
+
+// --- FILE: tsconfig.json ---
+{
+  "compilerOptions": {
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "exclude": ["node_modules"]
+}
+
+// --- FILE: .env ---
+DATABASE_URL="file:./dev.db"
+NEXTAUTH_SECRET="iot-sensor-secret-key-123456789"
+
+// ==========================================
+// 2. DATABASE SCHEMA
+// ==========================================
+
+// --- FILE: prisma/schema.prisma ---
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  CUSTOMER
+}
+
+enum SensorType {
+  TEMPERATURE
+  TEMPERATURE_HUMIDITY
+  CONTACT
+  VOLTAGE
+  GAS
+  MOTION
+  LIGHT
+  PRESSURE
+}
+
+enum AlarmLevel {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+enum AlarmType {
+  LOWER_LIMIT
+  UPPER_LIMIT
+  SENSOR_OFFLINE
+  SENSOR_ERROR
+}
+
+enum NotificationType {
+  EMAIL
+  SMS
+  DASHBOARD
+  PUSH
+}
+
+model User {
+  id              String    @id @default(cuid())
+  email           String    @unique
+  name            String?
+  password        String
+  role            UserRole  @default(CUSTOMER)
+  language        String    @default("tr")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  customerId      String?
+  customer        Customer? @relation("CustomerUsers", fields: [customerId], references: [id])
+}
+
+model Customer {
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  phone         String?
+  address       String?
+  company       String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  users         User[]    @relation("CustomerUsers")
+  devices       Device[]
+}
+
+model Device {
+  id            String     @id @default(cuid())
+  name          String
+  type          String     @default("IoT Device")
+  location      String?
+  description   String?
+  status        Boolean    @default(true)
+  customerId    String
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  customer      Customer   @relation(fields: [customerId], references: [id])
+  sensors       Sensor[]
+}
+
+model Sensor {
+  id              String      @id @default(cuid())
+  name            String
+  type            SensorType
+  unit            String      @default("")
+  lowerLimit      Float       @default(0)
+  upperLimit      Float       @default(100)
+  calibration    Float       @default(1.0)
+  status          Boolean     @default(true)
+  deviceId        String
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  device          Device      @relation(fields: [deviceId], references: [id])
+  readings        SensorReading[]
+  alarms          Alarm[]
+  preferences     SensorPreferences?
+}
+
+model SensorPreferences {
+  id               String    @id @default(cuid())
+  sensorId         String    @unique
+  alarmEnabled     Boolean   @default(true)
+  notifyEmail      Boolean   @default(true)
+  notifySms        Boolean   @default(false)
+  notifyDashboard   Boolean   @default(true)
+  notifyPush       Boolean   @default(false)
+  notifyThreshold  Float     @default(5)
+  updatedAt        DateTime  @updatedAt
+  sensor           Sensor    @relation(fields: [sensorId], references: [id])
+}
+
+model SensorReading {
+  id          String    @id @default(cuid())
+  sensorId    String
+  value       Float
+  temperature Float?
+  humidity    Float?
+  voltage     Float?
+  gasLevel    Float?
+  createdAt   DateTime  @default(now())
+  sensor      Sensor    @relation(fields: [sensorId], references: [id])
+  
+  @@index([sensorId, createdAt(sort: Desc)])
+}
+
+model Alarm {
+  id            String     @id @default(cuid())
+  sensorId      String
+  type          AlarmType
+  level         AlarmLevel
+  value         Float
+  message       String
+  acknowledged  Boolean    @default(false)
+  createdAt     DateTime   @default(now())
+  sensor        Sensor     @relation(fields: [sensorId], references: [id])
+}
+
+model NotificationPreferences {
+  id               String            @id @default(cuid())
+  userId           String
+  alarmLevel      AlarmLevel        @default(WARNING)
+  emailEnabled     Boolean           @default(true)
+  smsEnabled       Boolean           @default(false)
+  dashboardEnabled Boolean           @default(true)
+  pushEnabled     Boolean           @default(false)
+  updatedAt        DateTime          @updatedAt
+}
+
+model ReportHistory {
+  id            String    @id @default(cuid())
+  userId        String
+  reportType    String
+  format        String
+  startDate     DateTime
+  endDate       DateTime
+  fileUrl       String?
+  createdAt     DateTime  @default(now())
+}
+
+// ==========================================
+// 3. FRONTEND PAGES & LIBS
+// ==========================================
+
+// --- FILE: src/lib/prisma.ts ---
+import { PrismaClient } from '@prisma/client'
+
+const globalForPrisma = globalThis as unknown as {
+  prisma: PrismaClient | undefined
+}
+
+export const prisma = globalForPrisma.prisma ?? new PrismaClient()
+
+if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma
+
+// --- FILE: src/app/layout.tsx ---
+import type { Metadata } from "next";
+import { Inter } from "next/font/google";
+import "./globals.css";
+
+const inter = Inter({ subsets: ["latin"] });
+
+export const metadata: Metadata = {
+  title: "IoT Sensor Tracking System",
+  description: "Akıllı sensör yönetim ve takip platformu",
+};
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <html lang="tr">
+      <body className={inter.className}>{children}</body>
+    </html>
+  );
+}
+
+// --- FILE: src/app/globals.css ---
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 222.2 84.0% 4.9%;
+  --foreground: 210 40% 98%;
+  --card: 222.2 84.0% 4.9%;
+  --card-foreground: 210 40% 98%;
+  --popover: 222.2 84.0% 4.9%;
+  --popover-foreground: 210 40% 98%;
+  --primary: 210 40% 98%;
+  --primary-foreground: 222.2 47.4% 11.2%;
+  --secondary: 210 40% 96.1%;
+  --secondary-foreground: 222.2 47.4% 11.2%;
+  --muted: 210 40% 96.1%;
+  --muted-foreground: 215.4 16.3% 46.9%;
+  --accent: 210 40% 96.1%;
+  --accent-foreground: 222.2 47.4% 11.2%;
+  --destructive: 0 62.8% 30.6%;
+  --destructive-foreground: 210 40% 98%;
+  --border: 214.3 31.8% 91.4%;
+  --input: 214.3 31.8% 91.4%;
+  --ring: 222.2 84.0% 4.9%;
+  --radius: 0.5rem;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+body {
+  color: hsl(var(--foreground));
+  background: hsl(var(--background));
+}
+
+// --- FILE: src/app/page.tsx ---
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Thermometer, Droplets, Zap, Flame, Bell, UserCog } from "lucide-react"
+import Link from "next/link"
+
+export default function Home() {
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
+      <div className="max-w-6xl w-full space-y-8">
+        <div className="text-center space-y-4">
+          <div className="flex items-center justify-center space-x-3">
+            <Thermometer className="w-12 h-12 text-red-500" />
+            <Droplets className="w-12 h-12 text-blue-500" />
+            <Zap className="w-12 h-12 text-yellow-500" />
+            <Flame className="w-12 h-12 text-orange-500" />
+            <Bell className="w-12 h-12 text-purple-500" />
+          </div>
+          <h1 className="text-5xl font-bold text-white tracking-tight">
+            IoT Sensor Tracking System
+          </h1>
+          <p className="text-xl text-slate-400">
+            Akıllı sensör yönetim ve takip platformu
+          </p>
+        </div>
+
+        <div className="grid md:grid-cols-2 gap-6">
+          <Card className="border-slate-700 bg-slate-800/50 hover:bg-slate-800 transition-all duration-300">
+            <CardHeader>
+              <div className="flex items-center space-x-4 mb-4">
+                <UserCog className="w-12 h-12 text-blue-500" />
+                <div>
+                  <CardTitle className="text-3xl text-white">Yönetici Girişi</CardTitle>
+                  <CardDescription className="text-slate-400">
+                    Müşterileri ve cihazları yönetin
+                  </CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-3">
+                <div className="flex items-center space-x-2 text-slate-300">
+                  <div className="w-2 h-2 rounded-full bg-green-500" />
+                  <span> Müşteri yönetimi</span>
+                </div>
+                <div className="flex items-center space-x-2 text-slate-300">
+                  <div className="w-2 h-2 rounded-full bg-green-500" />
+                  <span> Cihaz yönetimi</span>
+                </div>
+                <div className="flex items-center space-x-2 text-slate-300">
+                  <div className="w-2 h-2 rounded-full bg-green-500" />
+                  <span> Raporlama ve analiz</span>
+                </div>
+              </div>
+              <Link href="/admin/login">
+                <Button className="w-full bg-blue-600 hover:bg-blue-700 text-white h-12 text-lg">
+                  Admin Girişi
+                </Button>
+              </Link>
+            </CardContent>
+          </Card>
+
+          <Card className="border-slate-700 bg-slate-800/50 hover:bg-slate-800 transition-all duration-300">
+            <CardHeader>
+              <div className="flex items-center space-x-4 mb-4">
+                <Bell className="w-12 h-12 text-purple-500" />
+                <div>
+                  <CardTitle className="text-3xl text-white">Müşteri Girişi</CardTitle>
+                  <CardDescription className="text-slate-400">
+                    Sensörlerinizi takip edin ve yönetin
+                  </CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-3">
+                <div className="flex items-center space-x-2 text-slate-300">
+                  <div className="w-2 h-2 rounded-full bg-purple-500" />
+                  <span> Gerçek zamanlı sensör verileri</span>
+                </div>
+                <div className="flex items-center space-x-2 text-slate-300">
+                  <div className="w-2 h-2 rounded-full bg-purple-500" />
+                  <span> Alarm bildirimleri</span>
+                </div>
+                <div className="flex items-center space-x-2 text-slate-300">
+                  <div className="w-2 h-2 rounded-full bg-purple-500" />
+                  <span> Limit ayarları</span>
+                </div>
+                <div className="flex items-center space-x-2 text-slate-300">
+                  <div className="w-2 h-2 rounded-full bg-purple-500" />
+                  <span> Raporlama ve grafikler</span>
+                </div>
+              </div>
+              <Link href="/customer/login">
+                <Button className="w-full bg-purple-600 hover:bg-purple-700 text-white h-12 text-lg">
+                  Müşteri Girişi
+                </Button>
+              </Link>
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card className="border-slate-700 bg-slate-800/30">
+          <CardContent className="pt-6">
+            <div className="text-center space-y-2">
+              <p className="text-slate-400">
+                🎯 <strong>Demo Modu:</strong> Şu anda demo verileri ile çalışıyoruz.
+              </p>
+              <p className="text-slate-500 text-sm">
+                Daha sonra ThingsBoard Combination Edition ile birlikte çalışacak.
+              </p>
+              <div className="flex items-center justify-center space-x-2 text-green-500 mt-4">
+                <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse" />
+                <span className="text-sm">Sistem Aktif</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="text-center text-slate-500 text-sm">
+          <p>© 2024 IoT Sensor Tracking System</p>
+          <p className="mt-1">Türkçe / English</p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// --- FILE: src/app/admin/login/page.tsx ---
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { UserCog } from "lucide-react"
+import Link from "next/link"
+
+export default function AdminLogin() {
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 flex items-center justify-center p-4">
+      <div className="w-full max-w-md space-y-8">
+        <div className="text-center space-y-4">
+          <div className="flex items-center justify-center">
+            <UserCog className="w-16 h-16 text-blue-500" />
+          </div>
+          <div>
+            <h1 className="text-4xl font-bold text-white">Yönetici Girişi</h1>
+            <p className="text-xl text-blue-300">IoT Sensor Tracking System</p>
+          </div>
+        </div>
+
+        <Card className="border-slate-700 bg-slate-800/50">
+          <CardHeader>
+            <CardTitle className="text-2xl text-white">Admin Girişi</CardTitle>
+            <CardDescription className="text-slate-400">
+              Email adresi ve şifrenizle giriş yapın
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="email" className="text-slate-300">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                placeholder="admin@iot.com"
+                className="bg-slate-900/50 border-slate-700 text-white placeholder:text-slate-600"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="password" className="text-slate-300">Şifre</Label>
+              <Input
+                id="password"
+                type="password"
+                placeholder="•••••"
+                className="bg-slate-900/50 border-slate-700 text-white placeholder:text-slate-600"
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <label className="flex items-center space-x-2 text-slate-400 text-sm">
+                <input
+                  type="checkbox"
+                  className="w-4 h-4 rounded border-slate-700 bg-slate-900 text-blue-500 focus:ring-blue-500"
+                />
+                <span>Beni hatırla</span>
+              </label>
+            </div>
+          </CardContent>
+          <CardFooter className="space-y-2">
+            <Button className="w-full bg-blue-600 hover:bg-blue-700 text-white h-12 text-lg">
+              Giriş Yap
+            </Button>
+            <Link href="/" className="w-full">
+              <Button variant="outline" className="w-full border-slate-700 text-slate-300 hover:bg-slate-800 h-12">
+                Ana Sayfaya Dön
+              </Button>
+            </Link>
+          </CardFooter>
+        </Card>
+
+        <div className="text-center space-y-2 p-4 bg-blue-900/20 rounded-lg border border-blue-800">
+          <p className="text-blue-300">🎯 Demo Bilgileri</p>
+          <div className="text-sm text-blue-400 space-y-1">
+            <p>Email: <code className="bg-blue-900/50 px-2 py-1 rounded">admin@iot.com</code></p>
+            <p>Şifre: <code className="bg-blue-900/50 px-2 py-1 rounded">admin123</code></p>
+          </div>
+        </div>
+
+        <div className="text-center text-slate-500 text-sm">
+          <Link href="/" className="hover:text-slate-300">
+            Ana Sayfaya Dön
+          </Link>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// --- FILE: src/app/admin/dashboard/page.tsx ---
+'use client'
+
+import { useEffect, useState } from 'react'
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { 
+  Users, 
+  Activity, 
+  AlertTriangle, 
+  Plus, 
+  TrendingUp,
+  TrendingDown,
+  Server,
+  Bell,
+  LogOut
+} from "lucide-react"
+import Link from "next/link"
+import { format } from "date-fns"
+import { tr } from "date-fns/locale"
+
+export default function AdminDashboard() {
+  const [customers, setCustomers] = useState([])
+  const [devices, setDevices] = useState([])
+  const [alarms, setAlarms] = useState([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [showAddCustomer, setShowAddCustomer] = useState(false)
+  const [showAddDevice, setShowAddDevice] = useState(false)
+
+  useEffect(() => {
+    const demoCustomers = [
+      { id: '1', name: 'ABC Şirketi', email: 'info@abc.com', phone: '+90 555 123 4567', company: 'ABC Şirketi', devicesCount: 5 },
+      { id: '2', name: 'XYZ Fabrikası', email: 'iletisim@xyz.com', phone: '+90 555 987 6543', company: 'XYZ Fabrikası', devicesCount: 8 },
+      { id: '3', name: 'Tech Solutions', email: 'contact@tech.com', phone: '+90 555 111 2222', company: 'Tech Solutions', devicesCount: 3 }
+    ]
+
+    const demoDevices = [
+      { id: '1', name: 'Ana Server Odası', type: 'Server Rack', location: 'Kat 1', status: true, customerName: 'ABC Şirketi' },
+      { id: '2', name: 'Veri Merkezi', type: 'Server Room', location: 'Kat 2', status: true, customerName: 'ABC Şirketi' },
+      { id: '3', name: 'Üretim Hattı', type: 'Industrial', location: 'Fabrika A', status: false, customerName: 'XYZ Fabrikası' },
+      { id: '4', name: 'Ofis Klima', type: 'HVAC', location: 'Ofis Katı', status: true, customerName: 'Tech Solutions' },
+      { id: '5', name: 'Depo Sensörleri', type: 'Warehouse', location: 'Depo B', status: true, customerName: 'XYZ Fabrikası' }
+    ]
+
+    const demoAlarms = [
+      { id: '1', sensorName: 'Sıcaklık Sensörü', type: 'UPPER_LIMIT', level: 'CRITICAL', value: 38, message: 'Sıcaklık sensörü üst limitin üzerinde', acknowledged: false, createdAt: new Date() },
+      { id: '2', sensorName: 'Gaz Sensörü', type: 'UPPER_LIMIT', level: 'CRITICAL', value: 150, message: 'Gaz seviyesi kritik seviyede', acknowledged: false, createdAt: new Date(Date.now() - 300000) },
+      { id: '3', sensorName: 'Nem Sensörü', type: 'LOWER_LIMIT', level: 'WARNING', value: 25, message: 'Nem seviyesi alt limitin altında', acknowledged: true, createdAt: new Date(Date.now() - 600000) },
+      { id: '4', sensorName: 'Voltaj Sensörü', type: 'UPPER_LIMIT', level: 'CRITICAL', value: 245, message: 'Voltaj kritik seviyede', acknowledged: false, createdAt: new Date(Date.now() - 900000) },
+      { id: '5', sensorName: 'Kapı Sensörü', type: 'SENSOR_OFFLINE', level: 'INFO', value: 0, message: 'Kapı sensörü 5 dakikadır veri göndermiyor', acknowledged: false, createdAt: new Date(Date.now() - 1200000) }
+    ]
+
+    setCustomers(demoCustomers)
+    setDevices(demoDevices)
+    setAlarms(demoAlarms)
+    setIsLoading(false)
+  }, [])
+
+  const stats = {
+    totalCustomers: customers.length,
+    totalDevices: devices.length,
+    activeDevices: devices.filter(d => d.status).length,
+    activeAlarms: alarms.filter(a => !a.acknowledged).length
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+      <header className="border-b border-slate-700 bg-slate-900/50 backdrop-blur-sm sticky top-0 z-10">
+        <div className="container mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <Activity className="w-8 h-8 text-blue-500" />
+              <div>
+                <h1 className="text-2xl font-bold text-white">Admin Dashboard</h1>
+                <p className="text-sm text-slate-400">IoT Sensor Tracking System</p>
+              </div>
+            </div>
+            <div className="flex items-center space-x-3">
+              <Button variant="outline" size="sm" className="border-slate-700 text-slate-300 hover:bg-slate-800">
+                <Bell className="w-4 h-4 mr-2" />
+                Bildirimler ({stats.activeAlarms})
+              </Button>
+              <Link href="/">
+                <Button variant="outline" size="sm" className="border-slate-700 text-slate-300 hover:bg-slate-800">
+                  <LogOut className="w-4 h-4 mr-2" />
+                  Çıkış
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main className="container mx-auto px-4 py-8">
+        {isLoading ? (
+          <div className="flex items-center justify-center py-20">
+            <div className="text-center space-y-4">
+              <Activity className="w-16 h-16 text-blue-500 animate-spin mx-auto" />
+              <p className="text-xl text-slate-400">Yükleniyor...</p>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <Card className="border-slate-700 bg-slate-800/50 hover:bg-slate-800 transition-all duration-300">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium text-slate-400">
+                    Toplam Müşteri
+                  </CardTitle>
+                  <Users className="h-4 w-4 text-blue-500" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-3xl font-bold text-white">{stats.totalCustomers}</div>
+                  <div className="flex items-center space-x-2 text-sm text-slate-400 mt-1">
+                    <TrendingUp className="h-4 w-4 text-green-500" />
+                    <span className="text-green-500">%12 artış</span>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="border-slate-700 bg-slate-800/50 hover:bg-slate-800 transition-all duration-300">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium text-slate-400">
+                    Toplam Cihaz
+                  </CardTitle>
+                  <Server className="h-4 w-4 text-purple-500" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-3xl font-bold text-white">{stats.totalDevices}</div>
+                  <div className="flex items-center space-x-2 text-sm text-slate-400 mt-1">
+                    <TrendingUp className="h-4 w-4 text-green-500" />
+                    <span className="text-green-500">%8 artış</span>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="border-slate-700 bg-slate-800/50 hover:bg-slate-800 transition-all duration-300">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium text-slate-400">
+                    Aktif Cihaz
+                  </CardTitle>
+                  <Server className="h-4 w-4 text-green-500" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-3xl font-bold text-white">{stats.activeDevices}</div>
+                  <div className="flex items-center space-x-2 text-sm text-slate-400 mt-1">
+                    <span className="text-green-500">{Math.round((stats.activeDevices / stats.totalDevices) * 100)}% oran</span>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="border-slate-700 bg-slate-800/50 hover:bg-slate-800 transition-all duration-300">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium text-slate-400">
+                    Aktif Alarm
+                  </CardTitle>
+                  <AlertTriangle className="h-4 w-4 text-red-500" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-3xl font-bold text-white">{stats.activeAlarms}</div>
+                  <div className="flex items-center space-x-2 text-sm text-slate-400 mt-1">
+                    <TrendingDown className="h-4 w-4 text-red-500" />
+                    <span className="text-red-500">%5 azalma</span>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <Card className="border-slate-700 bg-slate-800/50">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <Users className="w-5 h-5 text-blue-500" />
+                      <CardTitle className="text-xl text-white">Müşteriler</CardTitle>
+                    </div>
+                    <Button 
+                      size="sm" 
+                      onClick={() => setShowAddCustomer(true)}
+                      className="bg-blue-600 hover:bg-blue-700 text-white"
+                    >
+                      <Plus className="w-4 h-4 mr-1" />
+                      Yeni Müşteri
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3 max-h-96 overflow-y-auto">
+                    {customers.map((customer) => (
+                      <div key={customer.id} className="flex items-center justify-between p-3 rounded-lg bg-slate-900/50 hover:bg-slate-900 transition-colors">
+                        <div className="space-y-1">
+                          <p className="font-medium text-white">{customer.name}</p>
+                          <p className="text-sm text-slate-400">{customer.email}</p>
+                          <p className="text-xs text-slate-500">{customer.company} • {customer.devicesCount} cihaz</p>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Button variant="outline" size="sm" className="border-slate-700 text-slate-300">
+                            Düzenle
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="border-slate-700 bg-slate-800/50">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <Server className="w-5 h-5 text-purple-500" />
+                      <CardTitle className="text-xl text-white">Cihazlar</CardTitle>
+                    </div>
+                    <Button 
+                      size="sm" 
+                      onClick={() => setShowAddDevice(true)}
+                      className="bg-purple-600 hover:bg-purple-700 text-white"
+                    >
+                      <Plus className="w-4 h-4 mr-1" />
+                      Yeni Cihaz
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3 max-h-96 overflow-y-auto">
+                    {devices.map((device) => (
+                      <div key={device.id} className="flex items-center justify-between p-3 rounded-lg bg-slate-900/50 hover:bg-slate-900 transition-colors">
+                        <div className="space-y-1">
+                          <div className="flex items-center space-x-2">
+                            <Server className={`w-4 h-4 ${device.status ? 'text-green-500' : 'text-red-500'}`} />
+                            <p className="font-medium text-white">{device.name}</p>
+                          </div>
+                          <p className="text-sm text-slate-400">{device.type} • {device.location}</p>
+                          <p className="text-xs text-slate-500">{device.customerName}</p>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <div className={`px-2 py-1 rounded text-xs ${device.status ? 'bg-green-500/20 text-green-500' : 'bg-red-500/20 text-red-500'}`}>
+                            {device.status ? 'Aktif' : 'Pasif'}
+                          </div>
+                          <Button variant="outline" size="sm" className="border-slate-700 text-slate-300">
+                            Detay
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            <Card className="border-slate-700 bg-slate-800/50">
+              <CardHeader>
+                <div className="flex items-center space-x-2">
+                  <AlertTriangle className="w-5 h-5 text-red-500" />
+                  <CardTitle className="text-xl text-white">Son Alarmlar</CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3 max-h-96 overflow-y-auto">
+                  {alarms.map((alarm) => (
+                    <div key={alarm.id} className="flex items-start justify-between p-3 rounded-lg bg-slate-900/50 hover:bg-slate-900 transition-colors">
+                      <div className="space-y-2 flex-1">
+                        <div className="flex items-center space-x-2">
+                          <div className={`px-2 py-1 rounded text-xs font-medium ${
+                            alarm.level === 'CRITICAL' ? 'bg-red-500/20 text-red-500' :
+                            alarm.level === 'WARNING' ? 'bg-yellow-500/20 text-yellow-500' :
+                            'bg-blue-500/20 text-blue-500'
+                          }`}>
+                            {alarm.level}
+                          </div>
+                          <p className="font-medium text-white">{alarm.sensorName}</p>
+                        </div>
+                        <p className="text-sm text-slate-300">{alarm.message}</p>
+                        <div className="flex items-center space-x-4 text-xs text-slate-500 mt-1">
+                          <span>Değer: <span className="text-white font-medium">{alarm.value}</span></span>
+                          <span>{format(alarm.createdAt, 'dd MMMM yyyy HH:mm', { locale: tr })}</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        {!alarm.acknowledged && (
+                          <Button size="sm" className="bg-red-600 hover:bg-red-700 text-white">
+                            Kabul Et
+                          </Button>
+                        )}
+                        <div className={`px-2 py-1 rounded text-xs ${
+                          alarm.acknowledged ? 'bg-green-500/20 text-green-500' : 'bg-slate-700 text-slate-400'
+                        }`}>
+                          {alarm.acknowledged ? 'Kabul Edildi' : 'Bekliyor'}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+      </main>
+
+      <footer className="border-t border-slate-700 bg-slate-900/50 mt-8 py-6">
+        <div className="container mx-auto px-4">
+          <div className="text-center text-slate-500 text-sm">
+            <p>© 2024 IoT Sensor Tracking System • Admin Paneli</p>
+            <p className="mt-1">Türkçe / English</p>
+          </div>
+        </div>
+      </footer>
+
+      {showAddCustomer && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-lg p-6 w-full max-w-md">
+            <h2 className="text-2xl font-bold text-white mb-4">Yeni Müşteri Ekle</h2>
+            <p className="text-slate-400 mb-4">Bu özellik bir sonraki güncellemede eklenecek.</p>
+            <div className="flex space-x-3">
+              <Button onClick={() => setShowAddCustomer(false)} variant="outline" className="flex-1 border-slate-700 text-slate-300">
+                Kapat
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAddDevice && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-lg p-6 w-full max-w-md">
+            <h2 className="text-2xl font-bold text-white mb-4">Yeni Cihaz Ekle</h2>
+            <p className="text-slate-400 mb-4">Bu özellik bir sonraki güncellemede eklenecek.</p>
+            <div className="flex space-x-3">
+              <Button onClick={() => setShowAddDevice(false)} variant="outline" className="flex-1 border-slate-700 text-slate-300">
+                Kapat
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// --- FILE: src/app/customer/login/page.tsx ---
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Bell } from "lucide-react"
+import Link from "next/link"
+
+export default function CustomerLogin() {
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">
+      <div className="w-full max-w-md space-y-8">
+        <div className="text-center space-y-4">
+          <div className="flex items-center justify-center">
+            <Bell className="w-16 h-16 text-purple-500" />
+          </div>
+          <div>
+            <h1 className="text-4xl font-bold text-white">Müşteri Girişi</h1>
+            <p className="text-xl text-purple-300">IoT Sensor Tracking System</p>
+          </div>
+        </div>
+
+        <Card className="border-slate-700 bg-slate-800/50">
+          <CardHeader>
+            <CardTitle className="text-2xl text-white">Müşteri Girişi</CardTitle>
+            <CardDescription className="text-slate-400">
+              Email adresi ve şifrenizle giriş yapın
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="email" className="text-slate-300">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                placeholder="customer@iot.com"
+                className="bg-slate-900/50 border-slate-700 text-white placeholder:text-slate-600"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="password" className="text-slate-300">Şifre</Label>
+              <Input
+                id="password"
+                type="password"
+                placeholder="••••"
+                className="bg-slate-900/50 border-slate-700 text-white placeholder:text-slate-600"
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <label className="flex items-center space-x-2 text-slate-400 text-sm">
+                <input
+                  type="checkbox"
+                  className="w-4 h-4 rounded border-slate-700 bg-slate-900 text-purple-500 focus:ring-purple-500"
+                />
+                <span>Beni hatırla</span>
+              </label>
+            </div>
+          </CardContent>
+          <CardFooter className="space-y-2">
+            <Button className="w-full bg-purple-600 hover:bg-purple-700 text-white h-12 text-lg">
+              Giriş Yap
+            </Button>
+            <Link href="/" className="w-full">
+              <Button variant="outline" className="w-full border-slate-700 text-slate-300 hover:bg-slate-800 h-12">
+                Ana Sayfaya Dön
+              </Button>
+            </Link>
+          </CardFooter>
+        </Card>
+
+        <div className="text-center space-y-2 p-4 bg-purple-900/20 rounded-lg border border-purple-800">
+          <p className="text-purple-300">🎯 Demo Bilgileri</p>
+          <div className="text-sm text-purple-400 space-y-1">
+            <p>Email: <code className="bg-purple-900/50 px-2 py-1 rounded">customer@iot.com</code></p>
+            <p>Şifre: <code className="bg-purple-900/50 px-2 py-1 rounded">customer123</code></p>
+          </div>
+        </div>
+
+        <div className="text-center text-slate-500 text-sm">
+          <Link href="/" className="hover:text-slate-300">
+            Ana Sayfaya Dön
+          </Link>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// --- FILE: src/app/customer/dashboard/page.tsx ---
+'use client'
+
+import { useEffect, useState } from 'react'
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { 
+  Thermometer, 
+  Droplets, 
+  Zap, 
+  Flame, 
+  Bell, 
+  LogOut,
+  Activity,
+  AlertTriangle,
+  Plus,
+  Settings,
+  TrendingUp,
+  TrendingDown
+} from "lucide-react"
+import Link from "next/link"
+import { format } from "date-fns"
+import { tr } from "date-fns/locale"
+
+interface Sensor {
+  id: string
+  name: string
+  type: string
+  unit: string
+  value: number
+  lowerLimit: number
+  upperLimit: number
+  status: boolean
+  deviceId: string
+  deviceName: string
+  lastReading?: string
+}
+
+interface Alarm {
+  id: string
+  sensorName: string
+  type: string
+  level: string
+  value: number
+  message: string
+  acknowledged: boolean
+  createdAt: Date
+}
+
+export default function CustomerDashboard() {
+  const [sensors, setSensors] = useState<Sensor[]>([])
+  const [alarms, setAlarms] = useState<Alarm[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [selectedSensor, setSelectedSensor] = useState<Sensor | null>(null)
+  const [showDetails, setShowDetails] = useState(false)
+  const [ws, setWs] = useState<WebSocket | null>(null)
+
+  useEffect(() => {
+    const demoSensors: Sensor[] = [
+      { 
+        id: '1', 
+        name: 'Sıcaklık Sensörü', 
+        type: 'TEMPERATURE', 
+        unit: '°C', 
+        value: 25.5, 
+        lowerLimit: 15, 
+        upperLimit: 35,
+        status: true,
+        deviceId: '1',
+        deviceName: 'Ana Server Odası',
+        lastReading: new Date().toISOString()
+      },
+      { 
+        id: '2', 
+        name: 'Nem Sensörü', 
+        type: 'TEMPERATURE_HUMIDITY', 
+        unit: '%', 
+        value: 60.2, 
+        lowerLimit: 30, 
+        upperLimit: 80,
+        status: true,
+        deviceId: '1',
+        deviceName: 'Ana Server Odası',
+        lastReading: new Date(Date.now() - 60000).toISOString()
+      },
+      { 
+        id: '3', 
+        name: 'Voltaj Sensörü', 
+        type: 'VOLTAGE', 
+        unit: 'V', 
+        value: 220.5, 
+        lowerLimit: 200, 
+        upperLimit: 240,
+        status: true,
+        deviceId: '2',
+        deviceName: 'Veri Merkezi',
+        lastReading: new Date(Date.now() - 120000).toISOString()
+      },
+      { 
+        id: '4', 
+        name: 'Gaz Sensörü', 
+        type: 'GAS', 
+        unit: 'ppm', 
+        value: 15.0, 
+        lowerLimit: 0, 
+        upperLimit: 100,
+        status: true,
+        deviceId: '3',
+        deviceName: 'Üretim Hattı',
+        lastReading: new Date(Date.now() - 180000).toISOString()
+      },
+      { 
+        id: '5', 
+        name: 'Kapı Sensörü', 
+        type: 'CONTACT', 
+        unit: '', 
+        value: 0, 
+        lowerLimit: 0, 
+        upperLimit: 1,
+        status: true,
+        deviceId: '4',
+        deviceName: 'Ofis Klima',
+        lastReading: new Date(Date.now() - 240000).toISOString()
+      },
+      { 
+        id: '6', 
+        name: 'Hareket Sensörü', 
+        type: 'MOTION', 
+        unit: '', 
+        value: 0, 
+        lowerLimit: 0, 
+        upperLimit: 1,
+        status: true,
+        deviceId: '5',
+        deviceName: 'Depo Sensörleri',
+        lastReading: new Date(Date.now() - 300000).toISOString()
+      }
+    ]
+
+    const demoAlarms: Alarm[] = [
+      { 
+        id: '1', 
+        sensorName: 'Sıcaklık Sensörü', 
+        type: 'UPPER_LIMIT', 
+        level: 'CRITICAL', 
+        value: 38, 
+        message: 'Sıcaklık sensörü üst limitin üzerinde (38 > 35)', 
+        acknowledged: false, 
+        createdAt: new Date() 
+      },
+      { 
+        id: '2', 
+        sensorName: 'Gaz Sensörü', 
+        type: 'UPPER_LIMIT', 
+        level: 'CRITICAL', 
+        value: 150, 
+        message: 'Gaz seviyesi kritik seviyede', 
+        acknowledged: false, 
+        createdAt: new Date(Date.now() - 300000) 
+      },
+      { 
+        id: '3', 
+        sensorName: 'Nem Sensörü', 
+        type: 'LOWER_LIMIT', 
+        level: 'WARNING', 
+        value: 25, 
+        message: 'Nem seviyesi alt limitin altında (25 < 30)', 
+        acknowledged: true, 
+        createdAt: new Date(Date.now() - 600000) 
+      }
+    ]
+
+    setSensors(demoSensors)
+    setAlarms(demoAlarms)
+    setIsLoading(false)
+
+    const wsUrl = 'ws://localhost:3003'
+    try {
+      const websocket = new WebSocket(wsUrl)
+      
+      websocket.onopen = () => {
+        console.log('✅ WebSocket bağlandı')
+        setWs(websocket)
+      }
+      
+      websocket.onmessage = (event) => {
+        const message = JSON.parse(event.data)
+        
+        if (message.type === 'SENSOR_DATA') {
+          setSensors(prevSensors => 
+            prevSensors.map(s => 
+              s.id === message.data.id 
+                ? { ...s, ...message.data, lastReading: new Date().toISOString() } 
+                : s
+            )
+          )
+        } else if (message.type === 'ALARM') {
+          const newAlarm: Alarm = {
+            id: `alarm-${Date.now()}`,
+            sensorName: message.data.sensorName,
+            type: message.data.type,
+            level: message.data.level,
+            value: message.data.value,
+            message: message.data.message,
+            acknowledged: false,
+            createdAt: new Date()
+          }
+          setAlarms(prev => [newAlarm, ...prev])
+        } else if (message.type === 'INITIAL_SENSORS') {
+          console.log('İlk sensör verileri:', message.data)
+        }
+      }
+      
+      websocket.onclose = () => {
+        console.log('❌ WebSocket bağlantısı koptu')
+        setWs(null)
+      }
+      
+      websocket.onerror = (error) => {
+        console.error('WebSocket hatası:', error)
+      }
+    } catch (error) {
+      console.error('WebSocket bağlantı hatası:', error)
+    }
+  }, [])
+
+  const stats = {
+    totalSensors: sensors.length,
+    activeSensors: sensors.filter(s => s.status).length,
+    activeAlarms: alarms.filter(a => !a.acknowledged).length,
+    acknowledgedAlarms: alarms.filter(a => a.acknowledged).length
+  }
+
+  const handleSensorClick = (sensor: Sensor) => {
+    setSelectedSensor(sensor)
+    setShowDetails(true)
+  }
+
+  const getSensorIcon = (type: string) => {
+    switch (type) {
+      case 'TEMPERATURE':
+        return <Thermometer className="w-6 h-6 text-red-500" />
+      case 'TEMPERATURE_HUMIDITY':
+        return <Droplets className="w-6 h-6 text-blue-500" />
+      case 'VOLTAGE':
+        return <Zap className="w-6 h-6 text-yellow-500" />
+      case 'GAS':
+        return <Flame className="w-6 h-6 text-orange-500" />
+      case 'CONTACT':
+        return <Activity className="w-6 h-6 text-purple-500" />
+      case 'MOTION':
+        return <Activity className="w-6 h-6 text-green-500" />
+      default:
+        return <Settings className="w-6 h-6 text-slate-500" />
+    }
+  }
+
+  const getSensorColor = (sensor: Sensor) => {
+    if (!sensor.status) return 'text-slate-500'
+    
+    if (sensor.value > sensor.upperLimit) return 'text-red-500'
+    if (sensor.value < sensor.lowerLimit) return 'text-orange-500'
+    
+    return 'text-green-500'
+  }
+
+  const handleAlarmAcknowledge = (alarmId: string) => {
+    setAlarms(prev => 
+      prev.map(a => 
+        a.id === alarmId ? { ...a, acknowledged: true } : a
+      )
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+      <header className="border-b border-slate-700 bg-slate-900/50 backdrop-blur-sm sticky top-0 z-10">
+        <div className="container mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <Bell className="w-8 h-8 text-purple-500" />
+              <div>
+                <h1 className="text-2xl font-bold text-white">Müşteri Dashboard</h1>
+                <p className="text-sm text-slate-400">IoT Sensor Tracking System</p>
+              </div>
+            </div>
+            <div className="flex items-center space-x-3">
+              <Button variant="outline" size="sm" className="border-slate-700 text-slate-300 hover:bg-slate-800">
+                <Bell className="w-4 h-4 mr-2" />
+                Bildirimler ({stats.activeAlarms})
+              </Button>
+              <Link href="/">
+                <Button variant="outline" size="sm" className="border-slate-700 text-slate-300 hover:bg-slate-800">
+                  <LogOut className="w-4 h-4 mr-2" />
+                  Çıkış
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main className="container mx-auto px-4 py-8">
+        {isLoading ? (
+          <div className="flex items-center justify-center py-20">
+            <div className="text-center space-y-4">
+              <Activity className="w-16 h-16 text-purple-500 animate-spin mx-auto" />
+              <p className="text-xl text-slate-400">Yükleniyor...</p>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <Card className="border-slate-700 bg-slate-800/50 hover:bg-slate-800 transition-all duration-300">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium text-slate-400">
+                    Toplam Sensör
+                  </CardTitle>
+                  <Settings className="h-4 w-4 text-purple-500" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-3xl font-bold text-white">{stats.totalSensors}</div>
+                  <div className="flex items-center space-x-2 text-sm text-slate-400 mt-1">
+                    <TrendingUp className="h-4 w-4 text-green-500" />
+                    <span className="text-green-500">%15 artış</span>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="border-slate-700 bg-slate-800/50 hover:bg-slate-800 transition-all duration-300">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium text-slate-400">
+                    Aktif Sensör
+                  </CardTitle>
+                  <Activity className="h-4 w-4 text-green-500" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-3xl font-bold text-white">{stats.activeSensors}</div>
+                  <div className="flex items-center space-x-2 text-sm text-slate-400 mt-1">
+                    <span className="text-green-500">{Math.round((stats.activeSensors / stats.totalSensors) * 100)}% oran</span>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="border-slate-700 bg-slate-800/50 hover:bg-slate-800 transition-all duration-300">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium text-slate-400">
+                    Aktif Alarm
+                  </CardTitle>
+                  <AlertTriangle className="h-4 w-4 text-red-500" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-3xl font-bold text-white">{stats.activeAlarms}</div>
+                  <div className="flex items-center space-x-2 text-sm text-slate-400 mt-1">
+                    <TrendingDown className="h-4 w-4 text-red-500" />
+                    <span className="text-red-500">%10 azalma</span>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="border-slate-700 bg-slate-800/50 hover:bg-slate-800 transition-all duration-300">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium text-slate-400">
+                    Kabul Edilen
+                  </CardTitle>
+                  <Activity className="h-4 w-4 text-blue-500" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-3xl font-bold text-white">{stats.acknowledgedAlarms}</div>
+                  <div className="flex items-center space-x-2 text-sm text-slate-400 mt-1">
+                    <TrendingUp className="h-4 w-4 text-green-500" />
+                    <span className="text-green-500">%25 artış</span>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <Card className="border-slate-700 bg-slate-800/50">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <Settings className="w-5 h-5 text-purple-500" />
+                      <CardTitle className="text-xl text-white">Sensörler</CardTitle>
+                    </div>
+                    <Button 
+                      size="sm" 
+                      className="bg-purple-600 hover:bg-purple-700 text-white"
+                    >
+                      <Plus className="w-4 h-4 mr-1" />
+                      Yeni Sensör
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3 max-h-96 overflow-y-auto">
+                    {sensors.map((sensor) => (
+                      <div 
+                        key={sensor.id} 
+                        onClick={() => handleSensorClick(sensor)}
+                        className="flex items-start justify-between p-4 rounded-lg bg-slate-900/50 hover:bg-slate-900 transition-colors cursor-pointer"
+                      >
+                        <div className="space-y-2 flex-1">
+                          <div className="flex items-center space-x-2">
+                            {getSensorIcon(sensor.type)}
+                            <p className="font-medium text-white">{sensor.name}</p>
+                            {!sensor.status && (
+                              <span className="px-2 py-1 rounded text-xs bg-red-500/20 text-red-500">Pasif</span>
+                            )}
+                          </div>
+                          <div className="flex items-center space-x-3">
+                            <div className="text-2xl font-bold text-white">
+                              {sensor.value} <span className="text-sm text-slate-400">{sensor.unit}</span>
+                            </div>
+                            <div className={`flex items-center space-x-1 ${getSensorColor(sensor)}`}>
+                              <TrendingUp className="w-4 h-4" />
+                              <span className="text-sm">
+                                {sensor.value > sensor.upperLimit && 'Üst limit'}
+                                {sensor.value < sensor.lowerLimit && 'Alt limit'}
+                                {(sensor.value >= sensor.lowerLimit && sensor.value <= sensor.upperLimit) && 'Normal'}
+                              </span>
+                            </div>
+                          </div>
+                          <p className="text-xs text-slate-500">
+                            {sensor.deviceName} • {sensor.lastReading && format(new Date(sensor.lastReading), 'dd MMMM yyyy HH:mm', { locale: tr })}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="border-slate-700 bg-slate-800/50">
+                <CardHeader>
+                  <div className="flex items-center space-x-2">
+                    <AlertTriangle className="w-5 h-5 text-red-500" />
+                    <CardTitle className="text-xl text-white">Son Alarmlar</CardTitle>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3 max-h-96 overflow-y-auto">
+                    {alarms.map((alarm) => (
+                      <div key={alarm.id} className="flex items-start justify-between p-4 rounded-lg bg-slate-900/50">
+                        <div className="space-y-2 flex-1">
+                          <div className="flex items-center space-x-2">
+                            <div className={`px-2 py-1 rounded text-xs font-medium ${
+                              alarm.level === 'CRITICAL' ? 'bg-red-500/20 text-red-500' :
+                              alarm.level === 'WARNING' ? 'bg-yellow-500/20 text-yellow-500' :
+                              'bg-blue-500/20 text-blue-500'
+                            }`}>
+                              {alarm.level}
+                            </div>
+                            <p className="font-medium text-white">{alarm.sensorName}</p>
+                          </div>
+                          <p className="text-sm text-slate-300">{alarm.message}</p>
+                          <div className="flex items-center space-x-4 text-xs text-slate-500 mt-1">
+                            <span>Değer: <span className="text-white font-medium">{alarm.value}</span></span>
+                            <span>{format(alarm.createdAt, 'dd MMMM yyyy HH:mm', { locale: tr })}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          {!alarm.acknowledged && (
+                            <Button 
+                              size="sm" 
+                              onClick={() => handleAlarmAcknowledge(alarm.id)}
+                              className="bg-red-600 hover:bg-red-700 text-white"
+                            >
+                              Kabul Et
+                            </Button>
+                          )}
+                          <div className={`px-2 py-1 rounded text-xs ${
+                            alarm.acknowledged ? 'bg-green-500/20 text-green-500' : 'bg-slate-700 text-slate-400'
+                          }`}>
+                            {alarm.acknowledged ? 'Kabul Edildi' : 'Bekliyor'}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        )}
+      </main>
+
+      <footer className="border-t border-slate-700 bg-slate-900/50 mt-8 py-6">
+        <div className="container mx-auto px-4">
+          <div className="text-center text-slate-500 text-sm">
+            <p>© 2024 IoT Sensor Tracking System • Müşteri Paneli</p>
+            <p className="mt-1">Türkçe / English</p>
+          </div>
+        </div>
+      </footer>
+
+      {showDetails && selectedSensor && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-lg p-6 w-full max-w-md">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-2xl font-bold text-white">{selectedSensor.name}</h2>
+              <Button 
+                size="sm" 
+                onClick={() => setShowDetails(false)}
+                variant="outline"
+                className="border-slate-700 text-slate-300"
+              >
+                Kapat
+              </Button>
+            </div>
+            
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <p className="text-sm text-slate-400">Türü</p>
+                  <p className="font-medium text-white">{selectedSensor.type}</p>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm text-slate-400">Birim</p>
+                  <p className="font-medium text-white">{selectedSensor.unit}</p>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <p className="text-sm text-slate-400">Alt Limit</p>
+                  <p className="font-medium text-white">{selectedSensor.lowerLimit}</p>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm text-slate-400">Üst Limit</p>
+                  <p className="font-medium text-white">{selectedSensor.upperLimit}</p>
+                </div>
+              </div>
+              
+              <div className="space-y-2">
+                <p className="text-sm text-slate-400">Mevcut Değer</p>
+                  <div className="flex items-center space-x-3">
+                    <p className="text-3xl font-bold text-white">
+                      {selectedSensor.value} <span className="text-sm text-slate-400">{selectedSensor.unit}</span>
+                    </p>
+                    {getSensorIcon(selectedSensor.type)}
+                  </div>
+              </div>
+              
+              <div className="space-y-2">
+                <p className="text-sm text-slate-400">Durum</p>
+                  <div className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
+                    selectedSensor.status 
+                      ? 'bg-green-500/20 text-green-500' 
+                      : 'bg-red-500/20 text-red-500'
+                }`}>
+                  {selectedSensor.status ? 'Aktif' : 'Pasif'}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm text-slate-400">Cihaz</p>
+                  <p className="font-medium text-white">{selectedSensor.deviceName}</p>
+              </div>
+              
+              <div className="space-y-2">
+                <p className="text-sm text-slate-400">Son Okuma</p>
+                  <p className="font-medium text-white">
+                    {selectedSensor.lastReading 
+                      ? format(new Date(selectedSensor.lastReading), 'dd MMMM yyyy HH:mm:ss', { locale: tr })
+                      : 'Veri yok'}
+                  </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ==========================================
+// 4. BACKEND API ROUTES
+// ==========================================
+
+// --- FILE: src/app/api/auth/login/route.ts ---
+import { NextResponse } from 'next/server'
+import { prisma } from '@/lib/prisma'
+import bcrypt from 'bcryptjs'
+import { SignJWT } from 'jose'
+
+export async function POST(request: Request) {
+  try {
+    const body = await request.json()
+    const { email, password } = body
+
+    if (!email || !password) {
+      return NextResponse.json(
+        { error: 'Email ve şifre gereklidir' },
+        { status: 400 }
+      )
+    }
+
+    if (email === 'admin@iot.com' && password === 'admin123') {
+      const token = await new SignJWT({ email, role: 'ADMIN' })
+        .setProtectedHeader({ alg: 'HS256' })
+        .setIssuedAt()
+        .setExpirationTime('24h')
+        .sign(new TextEncoder().encode(process.env.NEXTAUTH_SECRET!))
+
+      return NextResponse.json({
+        success: true,
+        token,
+        user: {
+          email,
+          role: 'ADMIN',
+          name: 'Admin Kullanıcı'
+        }
+      })
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { email }
+    })
+
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Geçersiz email veya şifre' },
+        { status: 401 }
+      )
+    }
+
+    const passwordMatch = password === user.password || await bcrypt.compare(password, user.password)
+
+    if (!passwordMatch) {
+      return NextResponse.json(
+        { error: 'Geçersiz email veya şifre' },
+        { status: 401 }
+      )
+    }
+
+    const token = await new SignJWT({ 
+      userId: user.id, 
+      email: user.email, 
+      role: user.role,
+      customerId: user.customerId 
+    })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setIssuedAt()
+      .setExpirationTime('24h')
+      .sign(new TextEncoder().encode(process.env.NEXTAUTH_SECRET!))
+
+    return NextResponse.json({
+      success: true,
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        customerId: user.customerId,
+        language: user.language
+      }
+    })
+  } catch (error) {
+    console.error('Login error:', error)
+    return NextResponse.json(
+      { error: 'Sunucu hatası oluştu' },
+      { status: 500 }
+    )
+  }
+}
+
+// --- FILE: src/app/api/customers/route.ts ---
+import { NextResponse } from 'next/server'
+import { prisma } from '@/lib/prisma'
+import { verifyJWT } from 'jose'
+
+async function authMiddleware(request: Request) {
+  try {
+    const token = request.headers.get('Authorization')?.replace('Bearer ', '')
+    
+    if (!token) {
+      throw new Error('Token gereklidir')
+    }
+
+    const { payload } = await verifyJWT(
+      token,
+      new TextEncoder().encode(process.env.NEXTAUTH_SECRET!)
+    )
+
+    return payload
+  } catch (error) {
+    throw new Error('Geçersiz token')
+  }
+}
+
+export async function GET(request: Request) {
+  try {
+    const payload = await authMiddleware(request)
+    
+    if (payload.role !== 'ADMIN') {
+      return NextResponse.json(
+        { error: 'Yetkisiz erişim' },
+        { status: 403 }
+      )
+    }
+
+    const customers = await prisma.customer.findMany({
+      include: {
+        devices: {
+          include: {
+            sensors: true
+          }
+        },
+        users: true
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    })
+
+    return NextResponse.json({ customers })
+  } catch (error) {
+    console.error('Get customers error:', error)
+    return NextResponse.json(
+      { error: 'Sunucu hatası oluştu' },
+      { status: 500 }
+    )
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const payload = await authMiddleware(request)
+    
+    if (payload.role !== 'ADMIN') {
+      return NextResponse.json(
+        { error: 'Yetkisiz erişim' },
+        { status: 403 }
+      )
+    }
+
+    const body = await request.json()
+    const { name, email, phone, address, company } = body
+
+    if (!name || !email) {
+      return NextResponse.json(
+        { error: 'Ad ve email gereklidir' },
+        { status: 400 }
+      )
+    }
+
+    const customer = await prisma.customer.create({
+      data: {
+        name,
+        email,
+        phone,
+        address,
+        company
+      },
+      include: {
+        devices: true,
+        users: true
+      }
+    })
+
+    return NextResponse.json({ 
+      success: true,
+      customer 
+    }, { status: 201 })
+  } catch (error) {
+    console.error('Create customer error:', error)
+    return NextResponse.json(
+      { error: 'Sunucu hatası oluştu' },
+      { status: 500 }
+    )
+  }
+}
+
+export async function PUT(request: Request) {
+  try {
+    const payload = await authMiddleware(request)
+    
+    if (payload.role !== 'ADMIN') {
+      return NextResponse.json(
+        { error: 'Yetkisiz erişim' },
+        { status: 403 }
+      )
+    }
+
+    const body = await request.json()
+    const { id, name, email, phone, address, company } = body
+
+    if (!id) {
+      return NextResponse.json(
+        { error: 'ID gereklidir' },
+        { status: 400 }
+      )
+    }
+
+    const customer = await prisma.customer.update({
+      where: { id },
+      data: {
+        name,
+        email,
+        phone,
+        address,
+        company
+      },
+      include: {
+        devices: true,
+        users: true
+      }
+    })
+
+    return NextResponse.json({ 
+      success: true,
+      customer 
+    })
+  } catch (error) {
+    console.error('Update customer error:', error)
+    return NextResponse.json(
+      { error: 'Sunucu hatası oluştu' },
+      { status: 500 }
+    )
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const payload = await authMiddleware(request)
+    
+    if (payload.role !== 'ADMIN') {
+      return NextResponse.json(
+        { error: 'Yetkisiz erişim' },
+        { status: 403 }
+      )
+    }
+
+    const { searchParams } = new URL(request.url)
+    const id = searchParams.get('id')
+
+    if (!id) {
+      return NextResponse.json(
+        { error: 'ID gereklidir' },
+        { status: 400 }
+      )
+    }
+
+    await prisma.customer.delete({
+      where: { id }
+    })
+
+    return NextResponse.json({ 
+      success: true,
+      message: 'Müşteri başarıyla silindi' 
+    })
+  } catch (error) {
+    console.error('Delete customer error:', error)
+    return NextResponse.json(
+      { error: 'Sunucu hatası oluştu' },
+      { status: 500 }
+    )
+  }
+}
+
+// --- FILE: src/app/api/devices/route.ts ---
+import { NextResponse } from 'next/server'
+import { prisma } from '@/lib/prisma'
+import { verifyJWT } from 'jose'
+
+async function authMiddleware(request: Request) {
+  try {
+    const token = request.headers.get('Authorization')?.replace('Bearer ', '')
+    
+    if (!token) {
+      throw new Error('Token gereklidir')
+    }
+
+    const { payload } = await verifyJWT(
+      token,
+      new TextEncoder().encode(process.env.NEXTAUTH_SECRET!)
+    )
+
+    return payload
+  } catch (error) {
+    throw new Error('Geçersiz token')
+  }
+}
+
+export async function GET(request: Request) {
+  try {
+    const payload = await authMiddleware(request)
+    
+    let devices
+
+    if (payload.role === 'ADMIN') {
+      devices = await prisma.device.findMany({
+        include: {
+          sensors: true,
+          customer: true
+        },
+        orderBy: {
+          createdAt: 'desc'
+        }
+      })
+    } else {
+      devices = await prisma.device.findMany({
+        where: {
+          customerId: payload.customerId
+        },
+        include: {
+          sensors: true,
+          customer: true
+        },
+        orderBy: {
+          createdAt: 'desc'
+        }
+      })
+    }
+
+    return NextResponse.json({ devices })
+  } catch (error) {
+    console.error('Get devices error:', error)
+    return NextResponse.json(
+      { error: 'Sunucu hatası oluştu' },
+      { status: 500 }
+    )
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const payload = await authMiddleware(request)
+    
+    const body = await request.json()
+    const { name, type, location, description, status, customerId } = body
+
+    if (!name) {
+      return NextResponse.json(
+        { error: 'Cihaz adı gereklidir' },
+        { status: 400 }
+      )
+    }
+
+    let finalCustomerId = customerId
+    if (payload.role !== 'ADMIN') {
+      finalCustomerId = payload.customerId
+    }
+
+    const device = await prisma.device.create({
+      data: {
+        name,
+        type: type || 'IoT Device',
+        location,
+        description,
+        status: status !== undefined ? status : true,
+        customerId: finalCustomerId
+      },
+      include: {
+        sensors: true,
+        customer: true
+      }
+    })
+
+    return NextResponse.json({ 
+      success: true,
+      device 
+    }, { status: 201 })
+  } catch (error) {
+    console.error('Create device error:', error)
+    return NextResponse.json(
+      { error: 'Sunucu hatası oluştu' },
+      { status: 500 }
+    )
+  }
+}
+
+export async function PUT(request: Request) {
+  try {
+    const payload = await authMiddleware(request)
+    
+    const body = await request.json()
+    const { id, name, type, location, description, status } = body
+
+    if (!id) {
+      return NextResponse.json(
+        { error: 'ID gereklidir' },
+        { status: 400 }
+      )
+    }
+
+    if (payload.role !== 'ADMIN') {
+      const device = await prisma.device.findUnique({
+        where: { id }
+      })
+
+      if (!device || device.customerId !== payload.customerId) {
+        return NextResponse.json(
+          { error: 'Yetkisiz erişim' },
+          { status: 403 }
+        )
+      }
+    }
+
+    const device = await prisma.device.update({
+      where: { id },
+      data: {
+        name,
+        type,
+        location,
+        description,
+        status
+      },
+      include: {
+        sensors: true,
+        customer: true
+      }
+    })
+
+    return NextResponse.json({ 
+      success: true,
+      device 
+    })
+  } catch (error) {
+    console.error('Update device error:', error)
+    return NextResponse.json(
+      { error: 'Sunucu hatası oluştu' },
+      { status: 500 }
+    )
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const payload = await authMiddleware(request)
+    
+    const { searchParams } = new URL(request.url)
+    const id = searchParams.get('id')
+
+    if (!id) {
+      return NextResponse.json(
+        { error: 'ID gereklidir' },
+        { status: 400 }
+      )
+    }
+
+    if (payload.role !== 'ADMIN') {
+      const device = await prisma.device.findUnique({
+        where: { id }
+      })
+
+      if (!device || device.customerId !== payload.customerId) {
+        return NextResponse.json(
+          { error: 'Yetkisiz erişim' },
+          { status: 403 }
+        )
+      }
+    }
+
+    await prisma.device.delete({
+      where: { id }
+    })
+
+    return NextResponse.json({ 
+      success: true,
+      message: 'Cihaz başarıyla silindi' 
+    })
+  } catch (error) {
+    console.error('Delete device error:', error)
+    return NextResponse.json(
+      { error: 'Sunucu hatası oluştu' },
+      { status: 500 }
+    )
+  }
+}
+
+// --- FILE: src/app/api/sensors/route.ts ---
+import { NextResponse } from 'next/server'
+import { prisma } from '@/lib/prisma'
+import { verifyJWT } from 'jose'
+
+async function authMiddleware(request: Request) {
+  try {
+    const token = request.headers.get('Authorization')?.replace('Bearer ', '')
+    
+    if (!token) {
+      throw new Error('Token gereklidir')
+    }
+
+    const { payload } = await verifyJWT(
+      token,
+      new TextEncoder().encode(process.env.NEXTAUTH_SECRET!)
+    )
+
+    return payload
+  } catch (error) {
+    throw new Error('Geçersiz token')
+  }
+}
+
+export async function GET(request: Request) {
+  try {
+    const payload = await authMiddleware(request)
+    
+    let sensors
+
+    if (payload.role === 'ADMIN') {
+      sensors = await prisma.sensor.findMany({
+        include: {
+          device: {
+            include: {
+              customer: true
+            }
+          },
+          readings: {
+            take: 1,
+            orderBy: {
+              createdAt: 'desc'
+            }
+          }
+        },
+        preferences: true,
+        alarms: {
+          take: 5,
+          orderBy: {
+            createdAt: 'desc'
+          }
+        }
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    })
+    } else {
+      const customerDevices = await prisma.device.findMany({
+        where: {
+          customerId: payload.customerId
+        },
+        select: { id: true }
+      })
+
+      const deviceIds = customerDevices.map(d => d.id)
+
+      sensors = await prisma.sensor.findMany({
+        where: {
+          deviceId: {
+            in: deviceIds
+          }
+        },
+        include: {
+          device: {
+            include: {
+              customer: true
+            }
+          },
+          readings: {
+            take: 1,
+            orderBy: {
+              createdAt: 'desc'
+            }
+          }
+        },
+        preferences: true,
+        alarms: {
+          take: 5,
+          orderBy: {
+            createdAt: 'desc'
+          }
+        }
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    })
+    }
+
+    return NextResponse.json({ sensors })
+  } catch (error) {
+    console.error('Get sensors error:', error)
+    return NextResponse.json(
+      { error: 'Sunucu hatası oluştu' },
+      { status: 500 }
+    )
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const payload = await authMiddleware(request)
+    
+    const body = await request.json()
+    const { 
+      name, 
+      type, 
+      unit, 
+      lowerLimit, 
+      upperLimit, 
+      calibration, 
+      status, 
+      deviceId 
+    } = body
+
+    if (!name || !type || !deviceId) {
+      return NextResponse.json(
+        { error: 'Sensör adı, tipi ve cihaz ID gereklidir' },
+        { status: 400 }
+      )
+    }
+
+    if (payload.role !== 'ADMIN') {
+      const device = await prisma.device.findUnique({
+        where: { id: deviceId },
+        include: { customer: true }
+      })
+
+      if (!device || device.customerId !== payload.customerId) {
+        return NextResponse.json(
+          { error: 'Yetkisiz erişim' },
+          { status: 403 }
+        )
+      }
+    }
+
+    const sensor = await prisma.sensor.create({
+      data: {
+        name,
+        type,
+        unit: unit || '',
+        lowerLimit: lowerLimit !== undefined ? lowerLimit : 0,
+        upperLimit: upperLimit !== undefined ? upperLimit : 100,
+        calibration: calibration !== undefined ? calibration : 1.0,
+        status: status !== undefined ? status : true,
+        deviceId
+      },
+      include: {
+        device: {
+          include: {
+            customer: true
+          }
+        }
+      }
+    })
+
+    return NextResponse.json({ 
+      success: true,
+      sensor 
+    }, { status: 201 })
+  } catch (error) {
+    console.error('Create sensor error:', error)
+    return NextResponse.json(
+      { error: 'Sunucu hatası oluştu' },
+      { status: 500 }
+    )
+  }
+}
+
+export async function PUT(request: Request) {
+  try {
+    const payload = await authMiddleware(request)
+    
+    const body = await request.json()
+    const { 
+      id, 
+      name, 
+      type, 
+      unit, 
+      lowerLimit, 
+      upperLimit, 
+      calibration, 
+      status 
+    } = body
+
+    if (!id) {
+      return NextResponse.json(
+        { error: 'ID gereklidir' },
+        { status: 400 }
+      )
+    }
+
+    if (payload.role !== 'ADMIN') {
+      const sensor = await prisma.sensor.findUnique({
+        where: { id },
+        include: {
+          device: {
+            include: { customer: true }
+          }
+        }
+      })
+
+      if (!sensor || sensor.device.customerId !== payload.customerId) {
+        return NextResponse.json(
+          { error: 'Yetkisiz erişim' },
+          { status: 403 }
+        )
+      }
+    }
+
+    const sensor = await prisma.sensor.update({
+      where: { id },
+      data: {
+        name,
+        type,
+        unit,
+        lowerLimit,
+        upperLimit,
+        calibration,
+        status
+      },
+      include: {
+        device: {
+          include: { customer: true }
+        }
+      }
+    })
+
+    return NextResponse.json({ 
+      success: true,
+      sensor 
+    })
+  } catch (error) {
+    console.error('Update sensor error:', error)
+    return NextResponse.json(
+      { error: 'Sunucu hatası oluştu' },
+      { status: 500 }
+    )
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const payload = await authMiddleware(request)
+    
+    const { searchParams } = new URL(request.url)
+    const id = searchParams.get('id')
+
+    if (!id) {
+      return NextResponse.json(
+        { error: 'ID gereklidir' },
+        { status: 400 }
+      )
+    }
+
+    if (payload.role !== 'ADMIN') {
+      const sensor = await prisma.sensor.findUnique({
+        where: { id },
+        include: {
+          device: {
+            include: { customer: true }
+          }
+        }
+      })
+
+      if (!sensor || sensor.device.customerId !== payload.customerId) {
+        return NextResponse.json(
+          { error: 'Yetkisiz erişim' },
+          { status: 403 }
+        )
+      }
+    }
+
+    await prisma.sensor.delete({
+      where: { id }
+    })
+
+    return NextResponse.json({ 
+      success: true,
+      message: 'Sensör başarıyla silindi' 
+    })
+  } catch (error) {
+    console.error('Delete sensor error:', error)
+    return NextResponse.json(
+      { error: 'Sunucu hatası oluştu' },
+      { status: 500 }
+    )
+  }
+}
+
+// --- FILE: src/app/api/sensors/readings/route.ts ---
+import { NextResponse } from 'next/server'
+import { prisma } from '@/lib/prisma'
+import { verifyJWT } from 'jose'
+
+async function authMiddleware(request: Request) {
+  try {
+    const token = request.headers.get('Authorization')?.replace('Bearer ', '')
+    
+    if (!token) {
+      throw new Error('Token gereklidir')
+    }
+
+    const { payload } = await verifyJWT(
+      token,
+      new TextEncoder().encode(process.env.NEXTAUTH_SECRET!)
+    )
+
+    return payload
+  } catch (error) {
+    throw new Error('Geçersiz token')
+  }
+}
+
+export async function GET(request: Request) {
+  try {
+    const payload = await authMiddleware(request)
+    
+    const { searchParams } = new URL(request.url)
+    const sensorId = searchParams.get('sensorId')
+    const limit = parseInt(searchParams.get('limit') || '100')
+    const offset = parseInt(searchParams.get('offset') || '0')
+    
+    if (!sensorId) {
+      return NextResponse.json(
+        { error: 'Sensor ID gereklidir' },
+        { status: 400 }
+      )
+    }
+
+    const sensor = await prisma.sensor.findUnique({
+      where: { id: sensorId },
+      include: {
+        device: {
+          include: {
+            customer: true
+          }
+        }
+      }
+    })
+
+    if (!sensor) {
+      return NextResponse.json(
+        { error: 'Sensör bulunamadı' },
+        { status: 404 }
+      )
+    }
+
+    if (payload.role !== 'ADMIN' && sensor.device.customerId !== payload.customerId) {
+      return NextResponse.json(
+        { error: 'Yetkisiz erişim' },
+        { status: 403 }
+      )
+    }
+
+    const readings = await prisma.sensorReading.findMany({
+      where: {
+        sensorId
+      },
+      orderBy: {
+        createdAt: 'desc'
+      },
+      take: limit,
+      skip: offset
+    })
+
+    return NextResponse.json({ 
+      readings,
+      total: readings.length,
+      sensor: {
+        id: sensor.id,
+        name: sensor.name,
+        type: sensor.type,
+        unit: sensor.unit,
+        lowerLimit: sensor.lowerLimit,
+        upperLimit: sensor.upperLimit
+      }
+    })
+  } catch (error) {
+    console.error('Get sensor readings error:', error)
+    return NextResponse.json(
+      { error: 'Sunucu hatası oluştu' },
+      { status: 500 }
+    )
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const payload = await authMiddleware(request)
+    
+    const body = await request.json()
+    const { 
+      sensorId, 
+      value, 
+      temperature, 
+      humidity, 
+      voltage, 
+      gasLevel 
+    } = body
+
+    if (!sensorId || value === undefined) {
+      return NextResponse.json(
+        { error: 'Sensor ID ve değer gereklidir' },
+        { status: 400 }
+      )
+    }
+
+    const sensor = await prisma.sensor.findUnique({
+      where: { id: sensorId },
+      include: {
+        device: true
+      }
+    })
+
+    if (!sensor) {
+      return NextResponse.json(
+        { error: 'Sensör bulunamadı' },
+        { status: 404 }
+      )
+    }
+
+    if (payload.role !== 'ADMIN' && sensor.device.customerId !== payload.customerId) {
+      return NextResponse.json(
+        { error: 'Yetkisiz erişim' },
+        { status: 403 }
+      )
+    }
+
+    const reading = await prisma.sensorReading.create({
+      data: {
+        sensorId,
+        value,
+        temperature,
+        humidity,
+        voltage,
+        gasLevel
+      }
+    })
+
+    const alarms = []
+    
+    if (value < sensor.lowerLimit) {
+      const alarm = await prisma.alarm.create({
+        data: {
+          sensorId,
+          type: 'LOWER_LIMIT',
+          level: 'CRITICAL',
+          value,
+          message: `${sensor.name} alt limitin altında (${value} < ${sensor.lowerLimit})`
+        }
+      })
+      alarms.push(alarm)
+    }
+    
+    if (value > sensor.upperLimit) {
+      const alarm = await prisma.alarm.create({
+        data: {
+          sensorId,
+          type: 'UPPER_LIMIT',
+          level: 'CRITICAL',
+          value,
+          message: `${sensor.name} üst limitin üzerinde (${value} > ${sensor.upperLimit})`
+        }
+      })
+      alarms.push(alarm)
+    }
+
+    const lastReading = await prisma.sensorReading.findFirst({
+      where: { sensorId },
+      orderBy: { createdAt: 'desc' }
+    })
+
+    if (lastReading) {
+      const timeDiff = Date.now() - new Date(lastReading.createdAt).getTime()
+      const fiveMinutes = 5 * 60 * 1000
+
+      if (timeDiff > fiveMinutes && sensor.status) {
+        const alarm = await prisma.alarm.create({
+          data: {
+            sensorId,
+            type: 'SENSOR_OFFLINE',
+            level: 'WARNING',
+            value,
+            message: `${sensor.name} 5 dakikadır veri göndermiyor`
+          }
+        })
+        alarms.push(alarm)
+
+        await prisma.sensor.update({
+          where: { id: sensorId },
+          data: { status: false }
+        })
+      } else if (timeDiff < fiveMinutes && !sensor.status) {
+        await prisma.sensor.update({
+          where: { id: sensorId },
+          data: { status: true }
+        })
+      }
+    }
+
+    return NextResponse.json({ 
+      success: true,
+      reading,
+      alarms
+    })
+  } catch (error) {
+    console.error('Create sensor reading error:', error)
+    return NextResponse.json(
+      { error: 'Sunucu hatası oluştu' },
+      { status: 500 }
+    )
+  }
+}
+
+// --- FILE: src/app/api/alarms/route.ts ---
+import { NextResponse } from 'next/server'
+import { prisma } from '@/lib/prisma'
+import { verifyJWT } from 'jose'
+
+async function authMiddleware(request: Request) {
+  try {
+    const token = request.headers.get('Authorization')?.replace('Bearer ', '')
+    
+    if (!token) {
+      throw new Error('Token gereklidir')
+    }
+
+    const { payload } = await verifyJWT(
+      token,
+      new TextEncoder().encode(process.env.NEXTAUTH_SECRET!)
+    )
+
+    return payload
+  } catch (error) {
+    throw new Error('Geçersiz token')
+  }
+}
+
+export async function GET(request: Request) {
+  try {
+    const payload = await authMiddleware(request)
+    
+    let alarms
+
+    if (payload.role === 'ADMIN') {
+      alarms = await prisma.alarm.findMany({
+        include: {
+          sensor: {
+            include: {
+              device: {
+                include: {
+                  customer: true
+                }
+              }
+            }
+          }
+        },
+        orderBy: {
+          createdAt: 'desc'
+        }
+      })
+    } else {
+      const customerDevices = await prisma.device.findMany({
+        where: {
+          customerId: payload.customerId
+        },
+        select: { id: true }
+      })
+
+      const deviceIds = customerDevices.map(d => d.id)
+
+      const customerSensors = await prisma.sensor.findMany({
+        where: {
+          deviceId: {
+            in: deviceIds
+          }
+        },
+        select: { id: true }
+      })
+
+      const sensorIds = customerSensors.map(s => s.id)
+
+      alarms = await prisma.alarm.findMany({
+        where: {
+          sensorId: {
+            in: sensorIds
+          }
+        },
+        include: {
+          sensor: {
+            include: {
+              device: {
+                include: {
+                  customer: true
+                }
+              }
+            }
+          }
+        },
+        orderBy: {
+          createdAt: 'desc'
+        }
+      })
+    }
+
+    return NextResponse.json({ alarms })
+  } catch (error) {
+    console.error('Get alarms error:', error)
+    return NextResponse.json(
+      { error: 'Sunucu hatası oluştu' },
+      { status: 500 }
+    )
+  }
+}
+
+export async function PUT(request: Request) {
+  try {
+    const payload = await authMiddleware(request)
+    
+    const body = await request.json()
+    const { id, acknowledged } = body
+
+    if (!id) {
+      return NextResponse.json(
+        { error: 'ID gereklidir' },
+        { status: 400 }
+      )
+    }
+
+    const alarm = await prisma.alarm.findUnique({
+      where: { id },
+      include: {
+        sensor: {
+          include: {
+            device: true
+          }
+        }
+      }
+    })
+
+    if (!alarm) {
+      return NextResponse.json(
+        { error: 'Alarm bulunamadı' },
+        { status: 404 }
+      )
+    }
+
+    if (payload.role !== 'ADMIN' && alarm.sensor.device.customerId !== payload.customerId) {
+      return NextResponse.json(
+        { error: 'Yetkisiz erişim' },
+        { status: 403 }
+      )
+    }
+
+    const updatedAlarm = await prisma.alarm.update({
+      where: { id },
+      data: {
+        acknowledged: acknowledged !== undefined ? acknowledged : true
+      },
+      include: {
+        sensor: {
+          include: {
+            device: {
+              include: {
+                customer: true
+              }
+            }
+          }
+        }
+      }
+    })
+
+    return NextResponse.json({ 
+      success: true,
+      alarm: updatedAlarm 
+    })
+  } catch (error) {
+    console.error('Update alarm error:', error)
+    return NextResponse.json(
+      { error: 'Sunucu hatası oluştu' },
+      { status: 500 }
+    )
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const payload = await authMiddleware(request)
+    
+    const { searchParams } = new URL(request.url)
+    const id = searchParams.get('id')
+
+    if (!id) {
+      return NextResponse.json(
+        { error: 'ID gereklidir' },
+        { status: 400 }
+      )
+    }
+
+    const alarm = await prisma.alarm.findUnique({
+      where: { id },
+      include: {
+        sensor: {
+          include: {
+            device: true
+          }
+        }
+      }
+    })
+
+    if (!alarm) {
+      return NextResponse.json(
+        { error: 'Alarm bulunamadı' },
+        { status: 404 }
+      )
+    }
+
+    if (payload.role !== 'ADMIN' && alarm.sensor.device.customerId !== payload.customerId) {
+      return NextResponse.json(
+        { error: 'Yetkisiz erişim' },
+        { status: 403 }
+      )
+    }
+
+    await prisma.alarm.delete({
+      where: { id }
+    })
+
+    return NextResponse.json({ 
+      success: true,
+      message: 'Alarm başarıyla silindi' 
+    })
+  } catch (error) {
+    console.error('Delete alarm error:', error)
+    return NextResponse.json(
+      { error: 'Sunucu hatası oluştu' },
+      { status: 500 }
+    )
+  }
+}
+
+// ==========================================
+// 5. WEBSOCKET SERVER (DEMO DATA)
+// ==========================================
+
+// --- FILE: websocket/server.js ---
+const WebSocket = require('ws');
+const { PrismaClient } = require('@prisma/client')
+
+const prisma = new PrismaClient()
+const wss = new WebSocket.Server({ port: 3003 })
+
+console.log('🔌 WebSocket Server başlatıldı (port 3003)')
+
+const demoSensors = [
+  { 
+    id: '1', 
+    name: 'Sıcaklık Sensörü', 
+    type: 'TEMPERATURE', 
+    unit: '°C', 
+    value: 25, 
+    lowerLimit: 15, 
+    upperLimit: 35 
+  },
+  { 
+    id: '2', 
+    name: 'Nem Sensörü', 
+    type: 'TEMPERATURE_HUMIDITY', 
+    unit: '%', 
+    value: 60, 
+    lowerLimit: 30, 
+    upperLimit: 80 
+  },
+  { 
+    id: '3', 
+    name: 'Voltaj Sensörü', 
+    type: 'VOLTAGE', 
+    unit: 'V', 
+    value: 220, 
+    lowerLimit: 200, 
+    upperLimit: 240 
+  },
+  { 
+    id: '4', 
+    name: 'Gaz Sensörü', 
+    type: 'GAS', 
+    unit: 'ppm', 
+    value: 10, 
+    lowerLimit: 0, 
+    upperLimit: 100 
+  },
+  { 
+    id: '5', 
+    name: 'Kapı Sensörü', 
+    type: 'CONTACT', 
+    unit: '', 
+    value: 0, 
+    lowerLimit: 0, 
+    upperLimit: 1 
+  },
+  { 
+    id: '6', 
+    name: 'Hareket Sensörü', 
+    type: 'MOTION', 
+    unit: '', 
+    value: 0, 
+    lowerLimit: 0, 
+    upperLimit: 1 
+  },
+  { 
+    id: '7', 
+    name: 'Işık Sensörü', 
+    type: 'LIGHT', 
+    unit: 'lux', 
+    value: 500, 
+    lowerLimit: 100, 
+    upperLimit: 1000 
+  }
+]
+
+wss.on('connection', (ws) => {
+  console.log('✅ Client bağlandı')
+  
+  ws.send(JSON.stringify({
+    type: 'INITIAL_SENSORS',
+    data: demoSensors
+  }))
+
+  ws.on('message', async (message) => {
+    try {
+      const data = JSON.parse(message)
+      
+      const sensor = demoSensors.find(s => s.id === data.sensorId)
+      
+      if (!sensor) {
+        ws.send(JSON.stringify({
+          type: 'ERROR',
+          message: 'Sensör bulunamadı'
+        }))
+        return
+      }
+
+      if (data.value !== undefined) {
+        sensor.value = data.value
+      }
+
+      const alarms = []
+      
+      if (sensor.value < sensor.lowerLimit) {
+        const alarm = {
+          id: `alarm-${Date.now()}`,
+          sensorId: sensor.id,
+          sensorName: sensor.name,
+          type: 'LOWER_LIMIT',
+          level: sensor.type === 'GAS' ? 'CRITICAL' : 'WARNING',
+          value: sensor.value,
+          message: `${sensor.name} alt limitin altında (${sensor.value} < ${sensor.lowerLimit})`,
+          acknowledged: false,
+          createdAt: new Date().toISOString()
+        }
+        alarms.push(alarm)
+        
+        try {
+          await prisma.alarm.create({
+            data: {
+              sensorId: sensor.id,
+              type: 'LOWER_LIMIT',
+              level: 'WARNING',
+              value: sensor.value,
+              message: alarm.message
+            }
+          })
+        } catch (dbError) {
+          console.error('Veritabanı hatası:', dbError)
+        }
+      }
+      
+      if (sensor.value > sensor.upperLimit) {
+        const alarm = {
+          id: `alarm-${Date.now()}`,
+          sensorId: sensor.id,
+          sensorName: sensor.name,
+          type: 'UPPER_LIMIT',
+          level: sensor.type === 'GAS' || sensor.type === 'VOLTAGE' ? 'CRITICAL' : 'WARNING',
+          value: sensor.value,
+          message: `${sensor.name} üst limitin üzerinde (${sensor.value} > ${sensor.upperLimit})`,
+          acknowledged: false,
+          createdAt: new Date().toISOString()
+        }
+        alarms.push(alarm)
+        
+        try {
+          await prisma.alarm.create({
+            data: {
+              sensorId: sensor.id,
+              type: 'UPPER_LIMIT',
+              level: 'CRITICAL',
+              value: sensor.value,
+              message: alarm.message
+            }
+          })
+        } catch (dbError) {
+          console.error('Veritabanı hatası:', dbError)
+        }
+      }
+
+      try {
+        await prisma.sensorReading.create({
+          data: {
+            sensorId: sensor.id,
+            value: sensor.value,
+            temperature: sensor.type === 'TEMPERATURE' || sensor.type === 'TEMPERATURE_HUMIDITY' ? sensor.value : null,
+            humidity: sensor.type === 'TEMPERATURE_HUMIDITY' ? sensor.value : null,
+            voltage: sensor.type === 'VOLTAGE' ? sensor.value : null,
+            gasLevel: sensor.type === 'GAS' ? sensor.value : null
+          }
+        })
+      } catch (dbError) {
+        console.error('Okuma verisi kayıt hatası:', dbError)
+      }
+
+      wss.clients.forEach(client => {
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(JSON.stringify({
+            type: 'SENSOR_DATA',
+            data: sensor,
+            alarms: alarms.length > 0 ? alarms : null
+          }))
+        }
+      })
+      
+    } catch (error) {
+      console.error('Message processing error:', error)
+      ws.send(JSON.stringify({
+        type: 'ERROR',
+        message: 'Mesaj işlenirken hata oluştu'
+      }))
+    }
+  })
+
+  ws.on('close', () => {
+    console.log('❌ Client bağlantısı koptu')
+  })
+})
+
+setInterval(() => {
+  demoSensors.forEach(sensor => {
+    const change = (Math.random() - 0.5) * 5
+    
+    if (sensor.type === 'TEMPERATURE') {
+      sensor.value = Math.max(0, sensor.value + (Math.random() - 0.5) * 2)
+    } else if (sensor.type === 'TEMPERATURE_HUMIDITY') {
+      sensor.value = Math.max(0, Math.min(100, sensor.value + (Math.random() - 0.5) * 3))
+    } else if (sensor.type === 'VOLTAGE') {
+      sensor.value = Math.max(200, Math.min(240, sensor.value + (Math.random() - 0.5) * 10))
+    } else if (sensor.type === 'GAS') {
+      sensor.value = Math.max(0, sensor.value + (Math.random() - 0.5) * 20)
+    } else if (sensor.type === 'CONTACT' || sensor.type === 'MOTION' || sensor.type === 'LIGHT') {
+      if (Math.random() > 0.95) {
+        sensor.value = sensor.value === 0 ? 1 : 0
+      }
+    }
+    
+    sensor.value = Math.round(sensor.value * 10) / 10
+
+    wss.clients.forEach(client => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify({
+          type: 'SENSOR_DATA',
+          data: sensor,
+          alarms: null
+        }))
+      }
+    })
+  })
+}, 5000)
+
+console.log('📊 Demo sensör verileri gönderiliyor...')
+console.log('🔗 WebSocket port: 3003')
